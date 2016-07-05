@@ -37,8 +37,8 @@ def parse_header(raw_headers):
 host_p = re.compile('http://.+?/')
 connection_p = re.compile('Connection: .+?\r\n')
 def make_headers(headers):
-	# headers = headers.replace('Proxy-', '')
-	# headers = connection_p.sub('', headers)
+	headers = headers.replace('Proxy-', '')
+	headers = connection_p.sub('Connection: close\r\n', headers)
 	headers = headers.split('\n')
 	headers[0] = host_p.sub('/', headers[0])
 	headers = '\n'.join(headers)
@@ -98,53 +98,55 @@ def httpproxy(conn, addr, headers):
 		print('connect {} success'.format(address[0]))
 		# s.setblocking(0)
 		# conn.setblocking(0)
-		s.settimeout(0.1)
-		conn.settimeout(0.1)
+		# s.settimeout(0.1)
+		# conn.settimeout(0.1)
 		raw_headers = headers
 		headers = make_headers(headers)
+		print(headers)
 		s.sendall(headers.encode())
 		print(addr[0],
 			  '[{}]'.format(time.strftime('%Y-%m-%d %H:%M:%S')),
 			  raw_headers.split('\r\n')[0])
-		while 1:
-			try:
-				for buf in iter(lambda:s.recv(1024*8), b''):
-					# print('server:', address[0], len(buf))
-					conn.sendall(buf)
-					# if buf == b'':
-					# 	break
-				print('server: {} close'.format(address[0]))
-				return
-			except socket.timeout:
-				try:
-					headers = ''
-					while 1:
-						buf = conn.recv(1024).decode('utf-8')
-						headers += buf
-						if '\r\n\r\n' in headers and len(buf) < 1024:
-							break
-						elif buf == '':
-							print('client: {} close'.format(addr))
-							return
-						else:
-							pass
-					raw_headers = headers
-					headers = make_headers(headers)
-					s.sendall(headers.encode())
-					print(addr[0],
-						  '[{}]'.format(time.strftime('%Y-%m-%d %H:%M:%S')),
-						  raw_headers.split('\r\n')[0])
-					# for buf in iter(lambda:conn.recv(1024),b''):
-					# 	print(buf)
-					# 	conn.sendall(buf)
-					# return
-					continue
-				except socket.timeout:
-					sleep(0.1)
-					continue
-			except BrokenPipeError:
-				print('client: {} close'.format(addr))
-				return
+		# while 1:
+		# 	try:
+		for buf in iter(lambda:s.recv(1024*8), b''):
+			# print('server:', address[0], len(buf))
+			conn.sendall(buf)
+			# if buf == b'':
+			# 	break
+		print('server: {} close'.format(address[0]))
+		return
+			# except socket.timeout:
+			# 	try:
+			# 		headers = ''
+			# 		while 1:
+			# 			buf = conn.recv(1024).decode('utf-8')
+			# 			headers += buf
+			# 			if '\r\n\r\n' in headers and len(buf) < 1024:
+			# 				break
+			# 			elif buf == '':
+			# 				print('client: {} close'.format(addr))
+			# 				return
+			# 			else:
+			# 				pass
+			# 		raw_headers = headers
+			# 		headers = make_headers(headers)
+			# 		print(headers)
+			# 		s.sendall(headers.encode())
+			# 		print(addr[0],
+			# 			  '[{}]'.format(time.strftime('%Y-%m-%d %H:%M:%S')),
+			# 			  raw_headers.split('\r\n')[0])
+			# 		# for buf in iter(lambda:conn.recv(1024),b''):
+			# 		# 	print(buf)
+			# 		# 	conn.sendall(buf)
+			# 		# return
+			# 		continue
+			# 	except socket.timeout:
+			# 		sleep(0.1)
+			# 		continue
+			# except BrokenPipeError:
+			# 	print('client: {} close'.format(addr))
+			# 	return
 
 		# data = b''
 		# try:
