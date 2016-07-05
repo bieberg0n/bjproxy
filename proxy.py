@@ -9,7 +9,7 @@ from urllib.parse import urlparse#, urlunparse
 # from time import sleep
 # import threading
 from gevent.server import StreamServer
-from gevent import socket, sleep
+from gevent import sleep, socket
 # monkey.patch_socket()
 # monkey.patch_ssl()
 
@@ -34,15 +34,18 @@ def parse_header(raw_headers):
 	return method, version, scm, address, path, params, query, fragment
 
 
-def conn_recv(conn,s):
-	try:
-		for buf in iter(lambda:conn.recv(2048), b''):
-			s.sendall(buf)
-	except ConnectionResetError:
-		return
+host_p = re.compile('http://.+?/')
+connection_p = re.compile('Connection: .+?\r')
+def make_headers(headers):
+	headers = headers.replace('Proxy-', '')
+	# headers = connection_p.sub('Connection: Close\r', headers)
+	headers = headers.split('\n')
+	headers[0] = host_p.sub('/', headers[0])
+	headers = '\n'.join(headers)
+	return headers
 
 
-def httpsproxy(conn, raw_headers):
+def httpsproxy(conn, addr, raw_headers):
 	method, version, scm, address, path, params, query, fragment =\
 		parse_header(raw_headers)	
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -60,52 +63,91 @@ def httpsproxy(conn, raw_headers):
 				for buf in iter(lambda:conn.recv(1024*8),b''):
 					print("conn:",len(buf))
 					s.sendall(buf)
-				print('conn:b\'\'')
+				# print('conn:b\'\'')
+				print('client: {} close'.format(addr))
 				return
 			except socket.error:
 				try:
 					for buf in iter(lambda:s.recv(1024*8),b''):
 						print('server:',len(buf))
 						conn.sendall(buf)
-					print('server:b\'\'')
+					# print('server:b\'\'')
+					print('server: {} close'.format(address[0]))
 					return
 				except socket.error:
 					sleep(0.1)
 					continue
 
 
-host_p = re.compile('http://.+?/')
-connection_p = re.compile('Connection: .+?\r')
-def get_resp_from_httpproxy(headers):
-	raw_headers = headers
-	headers = headers.replace(
-		'Proxy-Connection: keep-alive', 'Connection: close')
-	headers = connection_p.sub('Connection: Close\r', headers)
-	headers = headers.split('\n')
-	headers[0] = host_p.sub('/', headers[0])
-	headers = '\n'.join(headers)
-
+def httpproxy(conn, addr, headers):
 	try:
 		method, version, scm, address, path, params, query, fragment =\
-			parse_header(raw_headers)
+			parse_header(headers)
 	except:
-		return b''
+		return
+
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	try:
 		s.connect(address)
 	except socket.error:
 		s.close()
-		return b''
+		return
 	else:
+		print('connect {} success'.format(address[0]))
+		s.setblocking(0)
+		conn.setblocking(0)
+		raw_headers = headers
+		headers = make_headers(headers)
 		s.sendall(headers.encode())
-		data = b''
-		try:
-			for d in iter(lambda:s.recv(1024*8), b''):
-				# print(d)
-				data += d
-		except ConnectionResetError:
-			return b''
-		return data
+		print(addr[0],
+			  '[{}]'.format(time.strftime('%Y-%m-%d %H:%M:%S')),
+			  raw_headers.split('\r\n')[0])
+		while 1:
+			try:
+				for buf in iter(lambda:s.recv(1024*8),None):
+					print('server:', address[0], len(buf))
+					conn.sendall(buf)
+					if buf == b'':
+						break
+				print('server: {} close'.format(address[0]))
+				return
+			except BlockingIOError:
+				try:
+					headers = ''
+					while 1:
+						buf = conn.recv(1).decode('utf-8')
+						headers += buf
+						if headers.endswith('\r\n\r\n'):
+							break
+						elif buf == '':
+							print('client: {} close'.format(addr))
+							return
+						else:
+							pass
+					raw_headers = headers
+					headers = make_headers(headers)
+					s.sendall(headers.encode())
+					print(addr[0],
+						  '[{}]'.format(time.strftime('%Y-%m-%d %H:%M:%S')),
+						  raw_headers.split('\r\n')[0])
+					for buf in iter(lambda:conn.recv(1024),b''):
+						conn.sendall(buf)
+					return
+				except BlockingIOError:
+					sleep(0.1)
+					continue
+			except BrokenPipeError:
+				print('client: {} close'.format(addr))
+				return
+
+		# data = b''
+		# try:
+		# 	for d in iter(lambda:s.recv(1024*8), b''):
+		# 		# print(d)
+		# 		data += d
+		# except ConnectionResetError:
+		# 	return b''
+		# return data
 
 
 def handle(conn, addr):
@@ -122,16 +164,14 @@ def handle(conn, addr):
 			  '[{}]'.format(time.strftime('%Y-%m-%d %H:%M:%S')),
 			  headers.split('\r\n')[0])
 		# resp = b''
-		httpsproxy(conn, headers)
-		return
+		httpsproxy(conn, addr, headers)
+		# return
 	else:
-		resp = get_resp_from_httpproxy(headers)
+		# print(headers)
+		httpproxy(conn, addr, headers)
 
-	conn.sendall(resp)
-	print(addr[0],
-		  '[{}]'.format(time.strftime('%Y-%m-%d %H:%M:%S')),
-		  headers.split('\r\n')[0])
-	conn.close()
+	# conn.sendall(resp)
+	# conn.close()
 
 	
 def main1():
