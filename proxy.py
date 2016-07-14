@@ -36,8 +36,12 @@ def parse_header(raw_headers):
 
 host_p = re.compile('http://.+?/')
 connection_p = re.compile('Connection: .+?\r\n')
+proxy_p = re.compile('Proxy-.+?\n')
 def make_headers(headers):
-	# headers = headers.replace('Proxy-', '')
+	if '\nConnection' in headers:
+		headers = proxy_p.sub('', headers)
+	else:
+		headers = headers.replace('Proxy-', '')
 	# headers = connection_p.sub('', headers)
 	headers = headers.split('\n')
 	headers[0] = host_p.sub('/', headers[0])
@@ -45,62 +49,10 @@ def make_headers(headers):
 	return headers
 
 
-# def childproxy(conn, addr, headers):
-# 	s = socket.socket()
-# 	s.connect( ('a.bjgong.tk', 8787 ) )
-# 	# print(headers)
-# 	s.sendall( headers.encode() )
-# 	# resp = b''
-# 	# for buf in iter(lambda:s.recv(1024), b''):
-# 	# 	print(buf)
-# 		# resp += buf
-# 	# conn.sendall(buf)
-# 	# s.setblocking(0)
-# 	# conn.setblocking(0)
-# 	s.settimeout(0.1)
-# 	conn.settimeout(0.1)
-# 	while 1:
-# 		try:
-# 			for buf in iter(lambda:s.recv(1024*8),b''):
-# 				# print('server:',len(buf))
-# 				conn.sendall(buf)
-# 			# print('server:b\'\'')
-# 			# print('server: {} close'.format(addr))
-# 			print('{} close'.format(addr) )
-# 			return
-# 		except socket.timeout:
-# 			try:
-# 				for buf in iter(lambda:conn.recv(1024*8),b''):
-# 					# print("conn:",len(buf))
-# 					s.sendall(buf)
-# 				# print('conn:b\'\'')
-# 				# print('client: {} close'.format(addr))
-# 				print('{} close'.format(addr) )
-# 				return
-# 			except socket.timeout:
-# 				sleep(0.1)
-# 				continue
-# 			except ConnectionResetError:
-# 				print('{} close'.format(addr) )
-# 				return
-			
-
-
 def httpsproxy(conn, addr, raw_headers):
 	method, version, scm, address, path, params, query, fragment =\
 		parse_header(raw_headers)	
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	# s.settimeout(5)
-	# try:
-	# 	s.connect(address)
-	# except socket.timeout:
-	# 	black_list[address[0]] = None
-	# 	with open('black.dat', 'w') as f:
-	# 		f.write( '\n'.join( [ i for i in black_list.keys() ] ) )
-	# 	childproxy(conn, addr, raw_headers)
-	# 	return
-		# s.close()
-		# return b''
 	s.connect(address)
 	# else:
 	conn.sendall(b'HTTP/1.1 200 Connection established\r\n\r\n')
@@ -228,7 +180,7 @@ def handle(conn, addr):
 	# 	# if '\r\n\r\n' in headers and len(buf) < 1024 or not buf:
 	# 	if headers.endswith('\r\n\r\n') or not buf:
 	# 		break
-	for buf in iter( lambda:conn.recv(1).decode('utf-8'), ''):
+	for buf in iter( lambda:conn.recv(1).decode('utf-8','ignore'), ''):
 		headers += buf
 		if headers.endswith('\r\n\r\n'):
 			break
