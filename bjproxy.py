@@ -44,12 +44,15 @@ def parse_header(raw_headers):
 host_p = re.compile('http://.+?/')
 connection_p = re.compile('Connection: .+?\r\n')
 proxy_p = re.compile('Proxy-.+?\n')
-def deal_with_headers(headers):
+def deal_with_headers(headers, conn_keep=True):
 	if '\nConnection' in headers:
 		headers = proxy_p.sub('', headers)
 	else:
 		headers = headers.replace('Proxy-', '')
-	# headers = connection_p.sub('', headers)
+	if conn_keep:
+		pass
+	else:
+		headers = connection_p.sub('Connection: close\r\n', headers)
 	headers = headers.split('\n')
 	headers[0] = host_p.sub('/', headers[0])
 	headers = '\n'.join(headers)
@@ -132,7 +135,7 @@ def httpproxy(cli, addr, headers):
 	except socket.gaierror as e:
 		print(e, headers_dict['address'])
 	print('connect {} success'.format(headers_dict['Host']))
-	headers = deal_with_headers(headers)
+	headers = deal_with_headers(headers, conn_keep=False)
 	# print(addr,headers)
 	print(addr,
 		  '[{}]'.format(time.strftime('%Y-%m-%d %H:%M:%S')),
@@ -143,13 +146,11 @@ def httpproxy(cli, addr, headers):
 		serv.sendall(headers.encode())
 	except BrokenPipeError:
 		return
-	p = multiprocessing.Process(target=a_to_b, args=(serv, cli, headers_dict['Host'], addr[0],), daemon=True)
-	p.start()
-	# p = multiprocessing.Process(target=a_to_b, args=(serv, cli, headers_dict['Host'], addr[0],))
-	# a_to_b(serv, cli, headers_dict['Host'], addr[0])
+	# p = multiprocessing.Process(target=a_to_b, args=(serv, cli, headers_dict['Host'], addr[0],), daemon=True)
 	# p.start()
-	cli_to_serv(serv, cli, headers_dict['Host'], addr)
-	return p.terminate()
+	# cli_to_serv(serv, cli, headers_dict['Host'], addr)
+	a_to_b(serv, cli, headers_dict['address'], addr[0])
+	# return p.terminate()
 	
 
 def get_headers(conn):
@@ -167,21 +168,21 @@ def handle(conn, cli_addr):
 	try:
 		headers_dict = parse_header(headers)
 	except (ValueError, IndexError):
+		# continue
 		return
 	if len(headers_dict.keys()) <= 1:
+		# continue
 		return
 	else:
 		pass
 
 	if headers_dict['method'] == 'CONNECT':
-		# print(cli_addr[0],
-		# 	  '[{}]'.format(time.strftime('%Y-%m-%d %H:%M:%S')),
-		# 	  headers_dict['method'], headers_dict['cli_address'],
-		# 	  headers_dict['path'])
 		return httpsproxy(conn, cli_addr, headers)
-		# pass
+		# return
 	else:
-		# try:
+		# p = multiprocessing.Process(target=httpproxy, args=(conn, cli_addr, headers,))
+		# p.start()
+		# p.join()
 		return httpproxy(conn, cli_addr, headers)
 
 	
