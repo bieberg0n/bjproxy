@@ -2,17 +2,21 @@ import re
 import json
 import time
 from urllib.parse import urlparse#, urlunparse
-import multiprocessing
+import multiprocessing.dummy as multiprocessing
 # import ssl
 import socket
 import socks
-socks.set_default_proxy(socks.SOCKS5, '192.168.1.1', 1080)
+import logging
 # from time import sleep
 # import threading
 # from gevent.server import StreamServer
 # from gevent import sleep, socket
 # monkey.patch_socket()
 # monkey.patch_ssl()
+
+# socks.set_default_proxy(socks.SOCKS5, '192.168.1.1', 1080)
+# socket.socket = socks.socksocket()
+logging.basicConfig(level=logging.INFO)
 
 def parse_header(raw_headers):
 	request_lines = raw_headers.split('\r\n')
@@ -21,7 +25,6 @@ def parse_header(raw_headers):
 	method = first_line[0]
 	full_path = first_line[1]
 	version = first_line[2]
-	# print("%s %s" % (method, full_path))
 	(scm, netloc, path, params, query, fragment) \
 		= urlparse(full_path, 'http')
 	if method == 'CONNECT':
@@ -56,7 +59,6 @@ def deal_with_headers(headers, conn_keep=True):
 	headers = headers.split('\n')
 	headers[0] = host_p.sub('/', headers[0])
 	headers = '\n'.join(headers)
-	# print(headers)
 	return headers
 
 
@@ -72,22 +74,23 @@ def deal_with_headers(headers, conn_keep=True):
 
 def httpsproxy(conn, addr, raw_headers):
 	headers_dict = parse_header(raw_headers)
-	# serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	serv = socks.socksocket(socket.AF_INET, socket.SOCK_STREAM)
+	serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	# serv = socks.socksocket(socket.AF_INET, socket.SOCK_STREAM)
 	try:
 		serv.connect(headers_dict['address'])
 	except TimeoutError:
 		return
 	conn.sendall(b'HTTP/1.1 200 Connection established\r\n\r\n')
-	print(addr,
-		  '[{}]'.format(time.strftime('%Y-%m-%d %H:%M:%S')),
-		  headers_dict['method'], headers_dict['address'],
-		  headers_dict['path'])
+	logging.info(str(addr) +
+				 ' [{}] '.format(time.strftime('%Y-%m-%d %H:%M:%S')) +
+				 headers_dict['method'] + str(headers_dict['address']) +
+				 headers_dict['path'])
 	# create_pipe(conn, s, conn_name=addr, serv_name=address[0])
-	p = multiprocessing.Process(target=a_to_b, args=(conn, serv, addr[0], headers_dict['address']), daemon=True)
+	p = multiprocessing.Process(target=a_to_b, args=(conn, serv, addr[0], headers_dict['address']))
+	p.setDaemon(True)
 	p.start()
 	a_to_b(serv, conn, headers_dict['address'], addr[0])
-	return p.terminate()
+	return# p.terminate()
 
 
 def a_to_b(a_conn, b_conn, a_name, b_name):
@@ -95,11 +98,11 @@ def a_to_b(a_conn, b_conn, a_name, b_name):
 	try:
 		[ sendall(buf) for buf in iter(lambda:a_conn.recv(1024*8), b'') ]
 	except (ConnectionResetError, BrokenPipeError) as e:
-		print(e)
+		logging.info(e)
 	finally:
 		a_conn.close()
 		b_conn.close()
-		return print('{} -> {} close'.format(a_name, b_name) )
+		return logging.info('{} -> {} close'.format(a_name, b_name) )
 
 
 def cli_to_serv(serv, cli, serv_name, cli_name):
@@ -109,38 +112,37 @@ def cli_to_serv(serv, cli, serv_name, cli_name):
 			if headers:
 				headers_dict = parse_header(headers)
 				headers = deal_with_headers(headers)
-				# print(cli_name, headers)
-				print(cli_name,
-					  '[{}]'.format(time.strftime('%Y-%m-%d %H:%M:%S')),
-					  headers_dict['method'], headers_dict['address'],
-					  headers_dict['path'])
+				logging.info(cli_name+
+							 ' [{}] '.format(time.strftime('%Y-%m-%d %H:%M:%S'))+
+							 headers_dict['method']+ headers_dict['address']+
+							 headers_dict['path'])
 				serv.sendall(headers.encode())
 			else:
 				break
 	except (ConnectionResetError, BrokenPipeError) as e:
-		print(e)
+		logging.info(e)
 	finally:
 		serv.close()
 		cli.close()
-		return print('{} -> {} close'.format(cli_name, serv_name))
+		return logging.info('{} -> {} close'.format(cli_name, serv_name))
 
 
 def httpproxy(cli, addr, headers):
-	# socket.socket = socks.socksocket()
-	serv = socks.socksocket(socket.AF_INET, socket.SOCK_STREAM)
+	serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	headers_dict = parse_header(headers)
 
+	logging.debug('start httpproxy ' + time.ctime())
 	try:
 		serv.connect(headers_dict['address'])
 	except socket.gaierror as e:
-		print(e, headers_dict['address'])
-	print('connect {} success'.format(headers_dict['Host']))
+		logging.info('{} {}'.format(e, headers_dict['address']))
+	logging.info('[{}] '.format(time.strftime('%Y-%m-%d %H:%M:%S')) + ' connect {} success'.format(headers_dict['Host']))
+	logging.debug('connected ' + time.ctime())
 	headers = deal_with_headers(headers, conn_keep=False)
-	# print(addr,headers)
-	print(addr,
-		  '[{}]'.format(time.strftime('%Y-%m-%d %H:%M:%S')),
-		  headers_dict['method'], headers_dict['address'],
-		  headers_dict['path'])
+	logging.info(str(addr) +
+				 ' [{}] '.format(time.strftime('%Y-%m-%d %H:%M:%S'))+
+				 headers_dict['method'] + str(headers_dict['address'])+
+				 headers_dict['path'])
 
 	try:
 		serv.sendall(headers.encode())
@@ -154,17 +156,22 @@ def httpproxy(cli, addr, headers):
 	
 
 def get_headers(conn):
+	# 针对微信朋友圈图片URL的[::ffff:ip]
+	p_ip = re.compile('\[::ffff:(.+)\]')
 	headers = ''
 	for buf in iter( lambda:conn.recv(1).decode('utf-8','ignore'), ''):
 		headers += buf
 		if headers.endswith('\r\n\r\n'):
 			break
+	if '::ffff' in headers:
+		headers = p_ip.sub('\\1', headers)
 	return headers
 
 
 def handle(conn, cli_addr):
 	# while True:
 	headers = get_headers(conn)
+	logging.debug(headers)
 	try:
 		headers_dict = parse_header(headers)
 	except (ValueError, IndexError):
@@ -177,12 +184,14 @@ def handle(conn, cli_addr):
 		pass
 
 	if headers_dict['method'] == 'CONNECT':
+		logging.debug('httpsproxy ' + time.ctime())
 		return httpsproxy(conn, cli_addr, headers)
 		# return
 	else:
 		# p = multiprocessing.Process(target=httpproxy, args=(conn, cli_addr, headers,))
 		# p.start()
 		# p.join()
+		logging.debug('proxy ' + time.ctime())
 		return httpproxy(conn, cli_addr, headers)
 
 	
@@ -195,6 +204,7 @@ def main1():
 	# pool = multiprocessing.Pool(4)
 	while 1:
 		conn, cli_addr = s.accept()
+		logging.debug('accept ' + time.ctime())
 		# handle(conn,addr)
 		multiprocessing.Process(target=handle,args=(conn, cli_addr,)).start()
 # 		threading.Thread(target=handle,args=(conn,addr)).start()
